@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="id">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Wunder Signal Bot ~ Paper Trading</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #121212;
+            color: #e0e0e0;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .container {
+            width: 90%;
+            max-width: 800px;
+            background-color: #1e1e1e;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+        }
+        h1, h2 {
+            color: #ffffff;
+            border-bottom: 2px solid #333;
+            padding-bottom: 10px;
+        }
+        .status {
+            padding: 10px;
+            margin-bottom: 15px;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .status.connected { background-color: #28a745; color: white; }
+        .status.disconnected { background-color: #dc3545; color: white; }
+        .log-container {
+            height: 400px;
+            background-color: #000;
+            border: 1px solid #444;
+            border-radius: 5px;
+            overflow-y: scroll;
+            padding: 10px;
+            font-family: "Courier New", Courier, monospace;
+            font-size: 14px;
+            white-space: pre-wrap;
+        }
+        .log-entry {
+            padding-bottom: 5px;
+            margin-bottom: 5px;
+            border-bottom: 1px dashed #333;
+        }
+        .log-entry.buy { color: #2ecc71; }
+        .log-entry.sell { color: #e74c3c; }
+        .log-entry.info { color: #3498db; }
+        .log-entry.warn { color: #f39c12; }
+        .config {
+            background-color: #2c2c2c;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input {
+            width: calc(100% - 20px);
+            padding: 8px 10px;
+            background-color: #333;
+            border: 1px solid #555;
+            color: white;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Wunder Signal Bot ~ Paper Trading Interface</h1>
+        
+        <div class="status disconnected" id="status-binance">Status Binance: Disconnected</div>
+        <div class="status disconnected" id="status-telegram">Status Telegram: Not Configured</div>
+
+        <div class="config">
+            <h2>Konfigurasi (Hanya untuk Tampilan)</h2>
+            <p class="log-entry warn">⚠️ Kunci API dan Token di bawah ini hanya untuk demonstrasi dan tidak digunakan untuk otentikasi nyata dari browser demi keamanan.</p>
+            <label for="apiKey">Binance Testnet API Key:</label>
+            <input type="text" id="apiKey" value="7b159c78c7b4d2671a91495bdbbfa96b..." readonly="readonly" />
+            
+            <label for="apiSecret">Binance Testnet API Secret:</label>
+            <input type="password" id="apiSecret" value="746efa9aa4afcb9055fe38c8b58e..." readonly="readonly" />
+
+            <label for="telegramToken">Telegram Bot Token:</label>
+            <input type="text" id="telegramToken" value="7929662766:AAEnL_VsaMi_iB..." readonly="readonly" />
+
+            <label for="telegramChatId">Telegram Chat ID:</label>
+            <input type="text" id="telegramChatId" value="1392975690" readonly="readonly" />
+        </div>
+
+        <h2>Log Sinyal & Perdagangan</h2>
+        <div class="log-container" id="log-output">
+            <div class="log-entry info">Memulai bot...</div>
+        </div>
+    </div>
+
+    <script type="text/javascript">
+    //<![CDATA[
+        // =================================================================================
+        // PERINGATAN KERAS: JANGAN PERNAH MENGGUNAKAN KODE INI DALAM PRODUKSI DENGAN
+        // KUNCI API ASLI. KODE YANG BERJALAN DI BROWSER TIDAK AMAN UNTUK MENYIMPAN RAHASIA.
+        // INI HANYA UNTUK TUJUAN EDUKASI DAN SIMULASI PAPER TRADING.
+        // =================================================================================
+
+        const config = {
+            symbol: 'BTCUSDT',
+            interval: '5m', // Interval candlestick (e.g., 1m, 5m, 15m, 1h, 4h)
+            binanceTestnetApiUrl: 'https://testnet.binance.vision/api/v3',
+            telegram: {
+                // Token dan Chat ID ini akan digunakan untuk mengirim notifikasi
+                token: "7929662766:AAEnL_VsaMi_iBCqRd4CZGnFBe3HST-J1jI",
+                chatId: "1392975690"
+            },
+            emaFastPeriod: 50,
+            emaSlowPeriod: 200,
+            volumeSmaPeriod: 20,
+            volumeMultiplier: 1.2,
+            atrPeriod: 14, // Periode untuk ATR
+            slMultiplier: 1.5, // Stop Loss = 1.5 * ATR di bawah/atas harga entry
+            tpMultiplier: 3.0  // Take Profit = 3.0 * ATR di atas/bawah harga entry (Risk/Reward Ratio 1:2)
+        };
+
+        // DOM Elements
+        const logOutput = document.getElementById('log-output');
+        const statusBinance = document.getElementById('status-binance');
+        const statusTelegram = document.getElementById('status-telegram');
+
+        // Helper to log messages
+        function log(message, type = 'info') {
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logOutput.appendChild(entry);
+            logOutput.scrollTop = logOutput.scrollHeight;
+        }
+
+        // Send message to Telegram
+        async function sendTelegramMessage(message) {
+            const url = `https://api.telegram.org/bot${config.telegram.token}/sendMessage`;
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        chat_id: config.telegram.chatId,
+                        text: message,
+                        parse_mode: 'HTML'
+                    })
+                });
+                const data = await response.json();
+                if (data.ok) {
+                    log('Notifikasi Telegram terkirim.', 'info');
+                    statusTelegram.textContent = 'Status Telegram: Terkirim';
+                    statusTelegram.className = 'status connected';
+                } else {
+                    log(`Gagal mengirim notifikasi Telegram: ${data.description}`, 'warn');
+                    statusTelegram.textContent = `Status Telegram: Gagal (${data.description})`;
+                    statusTelegram.className = 'status disconnected';
+                }
+            } catch (error) {
+                log(`Error saat mengirim ke Telegram: ${error.message}`, 'warn');
+            }
+        }
+
+        // =================================================================
+        // BAGIAN UTAMA: TRANSLASI PINE SCRIPT KE JAVASCRIPT
+        // =================================================================
+        
+        // Calculate SMA (Simple Moving Average)
+        function calculateSMA(data, period) {
+            let sma = [];
+            for (let i = period - 1; i < data.length; i++) {
+                let sum = 0;
+                for (let j = 0; j < period; j++) {
+                    sum += data[i - j];
+                }
+                sma.push(sum / period);
+            }
+            return sma;
+        }
+
+        // Calculate EMA (Exponential Moving Average)
+        function calculateEMA(data, period) {
+            let ema = [];
+            const multiplier = 2 / (period + 1);
+            // Hitung SMA untuk nilai EMA pertama
+            let sum = 0;
+            for (let i = 0; i < period; i++) {
+                sum += data[i];
+            }
+            ema[period - 1] = sum / period;
+            // Hitung EMA untuk sisa data
+            for (let i = period; i < data.length; i++) {
+                ema[i] = (data[i] - ema[i - 1]) * multiplier + ema[i - 1];
+            }
+            return ema;
+        }
+
+        // Calculate ATR (Average True Range)
+        function calculateATR(candles, period) {
+            let trValues = [];
+            for (let i = 1; i < candles.length; i++) {
+                const high = parseFloat(candles[i][2]);
+                const low = parseFloat(candles[i][3]);
+                const prevClose = parseFloat(candles[i - 1][4]);
+                const tr1 = high - low;
+                const tr2 = Math.abs(high - prevClose);
+                const tr3 = Math.abs(low - prevClose);
+                trValues.push(Math.max(tr1, tr2, tr3));
+            }
+            // Menggunakan EMA untuk menghaluskan TR, seperti yang umum dilakukan
+            return calculateEMA(trValues, period);
+        }
+
+
+        async function processCandles() {
+            try {
+                // Ambil data candlestick dari Binance (public endpoint, tidak perlu API key)
+                const response = await fetch(`${config.binanceTestnetApiUrl}/klines?symbol=${config.symbol}&interval=${config.interval}&limit=300`);
+                if (!response.ok) {
+                    throw new Error(`Gagal mengambil data dari Binance: ${response.statusText}`);
+                }
+                const klines = await response.json();
+                statusBinance.textContent = 'Status Binance: Connected';
+                statusBinance.className = 'status connected';
+
+                // Format data: [open, high, low, close, volume]
+                const closes = klines.map(k => parseFloat(k[4]));
+                const volumes = klines.map(k => parseFloat(k[5]));
+
+                // === EMA ===
+                const emaFast = calculateEMA(closes, config.emaFastPeriod);
+                const emaSlow = calculateEMA(closes, config.emaSlowPeriod);
+
+                // === VOLUME SPIKE ===
+                const avgVolArray = calculateSMA(volumes, config.volumeSmaPeriod);
+                
+                // === ATR for TP/SL ===
+                const atrValues = calculateATR(klines, config.atrPeriod);
+
+                // Analisa candle terakhir
+                const lastIndex = klines.length - 2; // Analisa candle yang sudah tertutup
+                const prevIndex = lastIndex - 1;
+
+                if (lastIndex < config.emaSlowPeriod) {
+                    log('Data belum cukup untuk analisa EMA.', 'warn');
+                    return;
+                }
+
+                const currentCandle = {
+                    open: parseFloat(klines[lastIndex][1]),
+                    close: parseFloat(klines[lastIndex][4]),
+                    volume: parseFloat(klines[lastIndex][5])
+                };
+                const prevCandle = {
+                    open: parseFloat(klines[prevIndex][1]),
+                    close: parseFloat(klines[prevIndex][4])
+                };
+
+                const currentEmaFast = emaFast[emaFast.length - 1];
+                const prevEmaFast = emaFast[emaFast.length - 2];
+                const currentEmaSlow = emaSlow[emaSlow.length - 1];
+                const avgVol = avgVolArray[avgVolArray.length-1];
+                const currentAtr = atrValues[atrValues.length-1];
+
+                // === CANDLE PATTERNS ===
+                const bullEngulfing = prevCandle.close < prevCandle.open && currentCandle.close > currentCandle.open && currentCandle.close > prevCandle.open && currentCandle.open < prevCandle.close;
+                const bearEngulfing = prevCandle.close > prevCandle.open && currentCandle.close < currentCandle.open && currentCandle.close < prevCandle.open && currentCandle.open > prevCandle.close;
+
+                // === VOLUME SPIKE ===
+                const volSpike = currentCandle.volume > avgVol * config.volumeMultiplier;
+
+                // === EMA TREND FILTER ===
+                const emaTrendUp = currentEmaFast > currentEmaSlow && currentEmaFast > prevEmaFast;
+                const emaTrendDown = currentEmaFast < currentEmaSlow && currentEmaFast < prevEmaFast;
+                
+                log(`Pemeriksaan Sinyal pada ${config.symbol} (${new Date(klines[lastIndex][0]).toLocaleString()})`);
+                log(`Harga Saat Ini: ${currentCandle.close}, EMA Fast: ${currentEmaFast.toFixed(2)}, EMA Slow: ${currentEmaSlow.toFixed(2)}`);
+                
+                // === SIGNAL LOGIC ===
+                const buySignal = bullEngulfing && volSpike && emaTrendUp;
+                const sellSignal = bearEngulfing && volSpike && emaTrendDown;
+
+                if (buySignal) {
+                    const entryPrice = currentCandle.close;
+                    const stopLoss = entryPrice - (currentAtr * config.slMultiplier);
+                    const takeProfit = entryPrice + (currentAtr * config.tpMultiplier);
+                    
+                    const message = `
+                        <b>🟢 SIGNAL BELI TERDETEKSI 🟢</b>
+                        ------------------------------------
+                        <b>Pair:</b> ${config.symbol}
+                        <b>Harga Entry:</b> ${entryPrice.toFixed(2)}
+                        <b>Kondisi:</b> Bullish Engulfing + Volume Spike + Tren EMA Naik
+                        ------------------------------------
+                        <b>Analisa TP/SL (berdasarkan ATR ${currentAtr.toFixed(2)}):</b>
+                        <b>Take Profit:</b> ${takeProfit.toFixed(2)}
+                        <b>Stop Loss:</b> ${stopLoss.toFixed(2)}
+                    `;
+                    log(message.replace(/<[^>]*>?/gm, ''), 'buy'); // Log ke halaman tanpa HTML tag
+                    sendTelegramMessage(message);
+
+                } else if (sellSignal) {
+                    const entryPrice = currentCandle.close;
+                    const stopLoss = entryPrice + (currentAtr * config.slMultiplier);
+                    const takeProfit = entryPrice - (currentAtr * config.tpMultiplier);
+                    
+                    const message = `
+                        <b>🔴 SIGNAL JUAL TERDETEKSI 🔴</b>
+                        ------------------------------------
+                        <b>Pair:</b> ${config.symbol}
+                        <b>Harga Entry:</b> ${entryPrice.toFixed(2)}
+                        <b>Kondisi:</b> Bearish Engulfing + Volume Spike + Tren EMA Turun
+                        ------------------------------------
+                        <b>Analisa TP/SL (berdasarkan ATR ${currentAtr.toFixed(2)}):</b>
+                        <b>Take Profit:</b> ${takeProfit.toFixed(2)}
+                        <b>Stop Loss:</b> ${stopLoss.toFixed(2)}
+                    `;
+                    log(message.replace(/<[^>]*>?/gm, ''), 'sell');
+                    sendTelegramMessage(message);
+
+                } else {
+                    log('Tidak ada sinyal terdeteksi. Menunggu kondisi pasar selanjutnya.');
+                }
+
+            } catch (error) {
+                log(`Terjadi kesalahan: ${error.message}`, 'warn');
+                statusBinance.textContent = `Status Binance: Error - ${error.message}`;
+                statusBinance.className = 'status disconnected';
+            }
+        }
+
+        // Jalankan saat halaman dimuat dan setiap interval
+        document.addEventListener('DOMContentLoaded', () => {
+            log('Bot paper trading dimulai. Menganalisa candle yang sudah tertutup.');
+            log(`Menggunakan interval: ${config.interval}. Sinyal akan diperiksa setiap ${config.interval}.`);
+            if(config.telegram.token && config.telegram.chatId) {
+                statusTelegram.textContent = 'Status Telegram: Siap Mengirim';
+                statusTelegram.className = 'status connected';
+            }
+            processCandles(); // Jalankan sekali saat pertama kali
+            // Set interval untuk memeriksa candle baru. 5 menit = 300000 ms
+            setInterval(processCandles, 300000); 
+        });
+
+    //]]>
+    </script>
+
+</body>
+</html>
