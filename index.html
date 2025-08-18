@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Wunder Signal Bot ~ Paper Trading Interface</title>
+    <title>Wunder Signal Bot ~ Paper Trading (Debug Mode)</title>
     <!-- Basic styling for the dashboard interface -->
     <style type="text/css">
         body {
@@ -64,10 +64,11 @@
         .log-entry:last-child {
             border-bottom: none;
         }
-        .log-entry.buy { color: #2ecc71; }
-        .log-entry.sell { color: #e74c3c; }
+        .log-entry.buy { color: #2ecc71; font-weight: bold; }
+        .log-entry.sell { color: #e74c3c; font-weight: bold; }
         .log-entry.info { color: #3498db; }
         .log-entry.warn { color: #f39c12; }
+        .log-entry.debug { color: #9b59b6; }
         .config-area {
             background-color: #333;
             padding: 1.5rem;
@@ -99,7 +100,7 @@
 <body>
 
     <div class="container">
-        <h1>Wunder Signal Bot ~ Paper Trading</h1>
+        <h1>Wunder Signal Bot ~ Paper Trading (Debug Mode)</h1>
         
         <div class="warning-banner">
             <strong>SECURITY WARNING:</strong> Never expose API keys in a public or client-side application. This is for educational testnet use only.
@@ -133,59 +134,35 @@
 
     <script type="text/javascript">
     //<![CDATA[
-        // =================================================================================
-        //  Wunder Signal Bot ~ Client-Side Paper Trading Simulation
-        //  Translated from Pine Script to JavaScript
-        //  
-        //  DISCLAIMER: This script is for educational purposes only. It runs in your
-        //  browser and is not a secure or reliable method for live trading.
-        //  Do not use with real funds or real API keys in a client-side environment.
-        // =================================================================================
-
         const config = {
             symbol: 'BTCUSDT',
-            interval: '5m', // Candlestick interval (1m, 5m, 15m, 1h, 4h, etc.)
+            interval: '5m',
             binanceTestnetApiUrl: 'https://testnet.binance.vision/api/v3',
             telegram: {
                 token: "7929662766:AAEnL_VsaMi_iBCqRd4CZGnFBe3HST-J1jI",
                 chatId: "1392975690"
             },
-            // Indicator Settings from Pine Script
             emaFastPeriod: 50,
             emaSlowPeriod: 200,
             volumeSmaPeriod: 20,
             volumeMultiplier: 1.2,
-            // TP/SL Strategy Settings
-            atrPeriod: 14,      // Period for Average True Range calculation
-            slMultiplier: 1.5,  // Stop Loss = 1.5 * ATR from entry price
-            tpMultiplier: 3.0   // Take Profit = 3.0 * ATR from entry price (Risk/Reward Ratio 1:2)
+            atrPeriod: 14,
+            slMultiplier: 1.5,
+            tpMultiplier: 3.0
         };
 
-        // --- DOM Element References ---
         const logOutput = document.getElementById('log-output');
         const statusBinance = document.getElementById('status-binance');
         const statusTelegram = document.getElementById('status-telegram');
 
-        // --- Utility Functions ---
-
-        /**
-         * Logs a message to the UI.
-         * @param {string} message The message to display.
-         * @param {string} type The type of log (info, buy, sell, warn).
-         */
         function log(message, type = 'info') {
             const entry = document.createElement('div');
             entry.className = `log-entry ${type}`;
             entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
             logOutput.appendChild(entry);
-            // Auto-scroll to the latest message
             logOutput.scrollTop = logOutput.scrollHeight;
         }
 
-        /**
-         * Sends a formatted message to a Telegram chat.
-         * @param {string} message The message content (can include HTML).
-         */
         async function sendTelegramMessage(message) {
             if (!config.telegram.token || !config.telegram.chatId) {
                 log('Telegram token or chat ID is not configured.', 'warn');
@@ -196,20 +173,14 @@
                 const response = await fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        chat_id: config.telegram.chatId,
-                        text: message,
-                        parse_mode: 'HTML'
-                    })
+                    body: JSON.stringify({ chat_id: config.telegram.chatId, text: message, parse_mode: 'HTML' })
                 });
                 const data = await response.json();
                 if (data.ok) {
                     log('Telegram notification sent successfully.', 'info');
                     statusTelegram.textContent = 'Telegram: Notification Sent';
                     statusTelegram.className = 'status connected';
-                } else {
-                    throw new Error(data.description);
-                }
+                } else { throw new Error(data.description); }
             } catch (error) {
                 log(`Failed to send Telegram message: ${error.message}`, 'warn');
                 statusTelegram.textContent = `Telegram: Error - ${error.message}`;
@@ -217,14 +188,6 @@
             }
         }
 
-        // --- Technical Indicator Calculation Functions ---
-
-        /**
-         * Calculates Simple Moving Average (SMA).
-         * @param {number[]} data Array of numbers (e.g., closing prices, volumes).
-         * @param {number} period The SMA period.
-         * @returns {number[]} An array of SMA values.
-         */
         function calculateSMA(data, period) {
             let sma = [];
             for (let i = period - 1; i < data.length; i++) {
@@ -235,174 +198,100 @@
             return sma;
         }
 
-        /**
-         * Calculates Exponential Moving Average (EMA).
-         * @param {number[]} data Array of numbers (e.g., closing prices).
-         * @param {number} period The EMA period.
-         * @returns {number[]} An array of EMA values.
-         */
         function calculateEMA(data, period) {
             let ema = [];
             const multiplier = 2 / (period + 1);
-            // First EMA is the SMA of the first period
             const firstSmaSlice = data.slice(0, period);
             const firstSma = firstSmaSlice.reduce((a, b) => a + b, 0) / period;
             ema[period - 1] = firstSma;
-            // Calculate subsequent EMAs
             for (let i = period; i < data.length; i++) {
                 const currentEma = (data[i] - ema[i - 1]) * multiplier + ema[i - 1];
                 ema.push(currentEma);
             }
-            // We need to shift the array to align with original data length
             return Array(period - 1).fill(NaN).concat(ema);
         }
 
-        /**
-         * Calculates Average True Range (ATR).
-         * @param {Array<Array<string>>} candles The raw kline data from Binance.
-         * @param {number} period The ATR period.
-         * @returns {number[]} An array of ATR values.
-         */
         function calculateATR(candles, period) {
             let trueRanges = [];
             for (let i = 1; i < candles.length; i++) {
                 const high = parseFloat(candles[i][2]);
                 const low = parseFloat(candles[i][3]);
                 const prevClose = parseFloat(candles[i - 1][4]);
-                const tr1 = high - low;
-                const tr2 = Math.abs(high - prevClose);
-                const tr3 = Math.abs(low - prevClose);
-                trueRanges.push(Math.max(tr1, tr2, tr3));
+                trueRanges.push(Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose)));
             }
-            // ATR is typically a smoothed moving average (like EMA) of the True Ranges
             return calculateEMA(trueRanges, period);
         }
 
-        // --- Main Bot Logic ---
-
-        /**
-         * Fetches candle data, runs the analysis, and checks for signals.
-         */
         async function processMarketData() {
             try {
-                // Fetch latest kline/candlestick data from Binance (public endpoint)
-                const limit = config.emaSlowPeriod + 50; // Need enough data for longest EMA
+                const limit = config.emaSlowPeriod + 50;
                 const response = await fetch(`${config.binanceTestnetApiUrl}/klines?symbol=${config.symbol}&interval=${config.interval}&limit=${limit}`);
-                if (!response.ok) {
-                    throw new Error(`API Error: ${response.statusText}`);
-                }
+                if (!response.ok) throw new Error(`API Error: ${response.statusText}`);
                 const klines = await response.json();
                 statusBinance.textContent = 'Binance: Connected';
                 statusBinance.className = 'status connected';
 
-                // Extract data arrays for calculations
                 const closes = klines.map(k => parseFloat(k[4]));
                 const volumes = klines.map(k => parseFloat(k[5]));
 
-                // --- INDICATOR CALCULATIONS ---
                 const emaFast = calculateEMA(closes, config.emaFastPeriod);
                 const emaSlow = calculateEMA(closes, config.emaSlowPeriod);
                 const avgVolArray = calculateSMA(volumes, config.volumeSmaPeriod);
                 const atrValues = calculateATR(klines, config.atrPeriod);
 
-                // --- SIGNAL ANALYSIS (on the most recently closed candle) ---
-                // We analyze klines.length - 2 because the last candle (length - 1) is still open
-                const i = klines.length - 2; 
+                const i = klines.length - 2;
                 const prev_i = i - 1;
 
-                // Check if we have enough data
                 if (i < config.emaSlowPeriod) {
                     log('Gathering more candle data for accurate EMA calculation...', 'warn');
                     return;
                 }
 
-                const currentCandle = {
-                    open: parseFloat(klines[i][1]),
-                    close: parseFloat(klines[i][4]),
-                    volume: parseFloat(klines[i][5])
-                };
-                const prevCandle = {
-                    open: parseFloat(klines[prev_i][1]),
-                    close: parseFloat(klines[prev_i][4])
-                };
-
-                // Get the latest calculated indicator values
+                const currentCandle = { open: parseFloat(klines[i][1]), close: parseFloat(klines[i][4]), volume: parseFloat(klines[i][5]) };
+                const prevCandle = { open: parseFloat(klines[prev_i][1]), close: parseFloat(klines[prev_i][4]) };
                 const currentEmaFast = emaFast[i];
                 const prevEmaFast = emaFast[prev_i];
                 const currentEmaSlow = emaSlow[i];
-                const avgVol = avgVolArray[avgVolArray.length - 1]; // SMA aligns differently, take last value
+                const avgVol = avgVolArray[avgVolArray.length - 1];
                 const currentAtr = atrValues[i];
 
-                log(`Checking for signals on ${config.symbol} @ ${new Date(klines[i][0]).toLocaleString()}`);
-                log(`Price: ${currentCandle.close.toFixed(2)}, Vol: ${Math.round(currentCandle.volume)}, ATR: ${currentAtr.toFixed(4)}`);
+                log(`--- Checking Signal @ ${new Date(klines[i][0]).toLocaleString()} ---`, 'info');
                 
                 // --- PINE SCRIPT LOGIC REPLICATION ---
-
-                // 1. Candle Patterns
                 const bullEngulfing = prevCandle.close < prevCandle.open && currentCandle.close > currentCandle.open && currentCandle.close > prevCandle.open && currentCandle.open < prevCandle.close;
                 const bearEngulfing = prevCandle.close > prevCandle.open && currentCandle.close < currentCandle.open && currentCandle.close < prevCandle.open && currentCandle.open > prevCandle.close;
-
-                // 2. Volume Spike
                 const volSpike = currentCandle.volume > avgVol * config.volumeMultiplier;
-
-                // 3. EMA Trend Filter
                 const emaTrendUp = currentEmaFast > currentEmaSlow && currentEmaFast > prevEmaFast;
                 const emaTrendDown = currentEmaFast < currentEmaSlow && currentEmaFast < prevEmaFast;
                 
-                // 4. Final Signal Combination
+                // --- NEW DEBUG LOGS ---
+                log(`Bullish Engulfing: ${bullEngulfing}`, 'debug');
+                log(`Bearish Engulfing: ${bearEngulfing}`, 'debug');
+                log(`Volume Spike: ${volSpike} (Current: ${Math.round(currentCandle.volume)}, Avg: ${Math.round(avgVol)})`, 'debug');
+                log(`EMA Trend Up: ${emaTrendUp} (Fast: ${currentEmaFast.toFixed(2)}, Slow: ${currentEmaSlow.toFixed(2)})`, 'debug');
+                log(`EMA Trend Down: ${emaTrendDown}`, 'debug');
+                
                 const buySignal = bullEngulfing && volSpike && emaTrendUp;
                 const sellSignal = bearEngulfing && volSpike && emaTrendDown;
-
-                // --- EXECUTE ACTIONS ON SIGNAL ---
 
                 if (buySignal) {
                     const entryPrice = currentCandle.close;
                     const stopLoss = entryPrice - (currentAtr * config.slMultiplier);
                     const takeProfit = entryPrice + (currentAtr * config.tpMultiplier);
-                    
-                    const logMessage = `BUY SIGNAL @ ${entryPrice.toFixed(2)}. Conditions met: Bullish Engulfing, Volume Spike, EMA Trend Up. TP: ${takeProfit.toFixed(2)}, SL: ${stopLoss.toFixed(2)}.`;
+                    const logMessage = `BUY SIGNAL @ ${entryPrice.toFixed(2)}. TP: ${takeProfit.toFixed(2)}, SL: ${stopLoss.toFixed(2)}.`;
                     log(logMessage, 'buy');
-                    
-                    const telegramMessage = `
-<b>🟢 BUY Signal | ${config.symbol} 🟢</b>
-------------------------------------
-<b>Entry Price:</b> ${entryPrice.toFixed(2)}
-<b>Conditions Met:</b>
-  ✅ Bullish Engulfing
-  ✅ Volume Spike
-  ✅ EMA Trend Up
-------------------------------------
-<i>ATR-Based Strategy (${currentAtr.toFixed(4)}):</i>
-  <b>🎯 Take Profit:</b> ${takeProfit.toFixed(2)}
-  <b>🛡️ Stop Loss:</b> ${stopLoss.toFixed(2)}
-                    `;
+                    const telegramMessage = `<b>🟢 BUY Signal | ${config.symbol} 🟢</b>\n------------------------------------\n<b>Entry Price:</b> ${entryPrice.toFixed(2)}\n<b>🎯 Take Profit:</b> ${takeProfit.toFixed(2)}\n<b>🛡️ Stop Loss:</b> ${stopLoss.toFixed(2)}`;
                     sendTelegramMessage(telegramMessage);
-
                 } else if (sellSignal) {
                     const entryPrice = currentCandle.close;
                     const stopLoss = entryPrice + (currentAtr * config.slMultiplier);
                     const takeProfit = entryPrice - (currentAtr * config.tpMultiplier);
-
-                    const logMessage = `SELL SIGNAL @ ${entryPrice.toFixed(2)}. Conditions met: Bearish Engulfing, Volume Spike, EMA Trend Down. TP: ${takeProfit.toFixed(2)}, SL: ${stopLoss.toFixed(2)}.`;
+                    const logMessage = `SELL SIGNAL @ ${entryPrice.toFixed(2)}. TP: ${takeProfit.toFixed(2)}, SL: ${stopLoss.toFixed(2)}.`;
                     log(logMessage, 'sell');
-
-                    const telegramMessage = `
-<b>🔴 SELL Signal | ${config.symbol} 🔴</b>
-------------------------------------
-<b>Entry Price:</b> ${entryPrice.toFixed(2)}
-<b>Conditions Met:</b>
-  ✅ Bearish Engulfing
-  ✅ Volume Spike
-  ✅ EMA Trend Down
-------------------------------------
-<i>ATR-Based Strategy (${currentAtr.toFixed(4)}):</i>
-  <b>🎯 Take Profit:</b> ${takeProfit.toFixed(2)}
-  <b>🛡️ Stop Loss:</b> ${stopLoss.toFixed(2)}
-                    `;
+                    const telegramMessage = `<b>🔴 SELL Signal | ${config.symbol} 🔴</b>\n------------------------------------\n<b>Entry Price:</b> ${entryPrice.toFixed(2)}\n<b>🎯 Take Profit:</b> ${takeProfit.toFixed(2)}\n<b>🛡️ Stop Loss:</b> ${stopLoss.toFixed(2)}`;
                     sendTelegramMessage(telegramMessage);
-
                 } else {
-                    log('No signal detected. Market conditions not met. Holding position.');
+                    log('No valid signal detected. Conditions not met.', 'info');
                 }
 
             } catch (error) {
@@ -412,26 +301,37 @@
             }
         }
 
-        // --- Bot Initialization ---
         document.addEventListener('DOMContentLoaded', () => {
             log(`Bot initialized for ${config.symbol} on the ${config.interval} interval.`);
-            
             if(config.telegram.token && config.telegram.chatId) {
                 statusTelegram.textContent = 'Telegram: Ready';
                 statusTelegram.className = 'status connected';
             }
-
-            // Run the first check immediately on load
             processMarketData(); 
-            
-            // Set an interval to check for new signals periodically
-            // 5 minutes = 300,000 milliseconds
             const intervalMilliseconds = 5 * 60 * 1000;
             setInterval(processMarketData, intervalMilliseconds); 
         });
-
     //]]>
     </script>
 
 </body>
 </html>
+```
+
+### Cara Menggunakan Kode Baru
+
+1.  **Ganti Kode:** Hapus semua kode lama di file `index.html` (atau apa pun nama filenya) dan tempelkan kode baru di atas.
+2.  **Simpan & Refresh:** Simpan file tersebut dan refresh halaman bot di browser Anda.
+3.  **Amati Log:** Sekarang, setiap 5 menit, Anda akan melihat laporan detail di log seperti ini:
+
+    ```
+    [10:05:01] --- Checking Signal @ 8/19/2025, 10:05:00 AM ---
+    [10:05:01] Bullish Engulfing: true
+    [10:05:01] Bearish Engulfing: false
+    [10:05:01] Volume Spike: false (Current: 150, Avg: 250)
+    [10:05:01] EMA Trend Up: true (Fast: 65000.50, Slow: 64000.20)
+    [10:05:01] EMA Trend Down: false
+    [10:05:01] No valid signal detected. Conditions not met.
+    ```
+
+Dari contoh log di atas, kita bisa langsung tahu bahwa sinyal `BUY` tidak terjadi karena kondisi **`Volume Spike: false`**. Ini akan membantu Anda memahami dengan tepat mengapa bot tidak mengirimkan notifika
