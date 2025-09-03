@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Bot Dashboard</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 2rem; }
+    .buy { color: green; }
+    .sell { color: red; }
+  </style>
+</head>
+<body>
+  <h1>Signals</h1>
+  <div id="signals"></div>
+  <h1>Trades</h1>
+  <div id="trades"></div>
+  <script>
+    async function refresh() {
+      try {
+        const [sRes, tRes] = await Promise.all([
+          fetch('/signals'),
+          fetch('/trades')
+        ]);
+        const signals = await sRes.json();
+        const trades = await tRes.json();
+        const sDiv = document.getElementById('signals');
+        sDiv.innerHTML = '';
+        signals.forEach(sig => {
+          const div = document.createElement('div');
+          div.textContent = `${sig.symbol}: ${sig.signal} @ ${sig.price}`;
+          div.className = sig.signal === 'BUY' ? 'buy' : 'sell';
+          sDiv.appendChild(div);
+        });
+        const tDiv = document.getElementById('trades');
+        tDiv.innerHTML = '';
+        trades.forEach(tr => {
+          const div = document.createElement('div');
+          div.textContent = `${tr.symbol}: ${tr.side} @ ${tr.price}`;
+          div.className = tr.side === 'BUY' ? 'buy' : 'sell';
+          tDiv.appendChild(div);
+        });
+      } catch (err) {
+        console.error(err);
+      }
+    }
+    refresh();
+    setInterval(refresh, 3000);
+  </script>
+</body>
+</html>
