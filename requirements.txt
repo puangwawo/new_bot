@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+ccxt
+pandas
+ta
+python-dotenv
+pytest
+ruff
